@@ -9,7 +9,7 @@
 // Japanese songs alone can be viewed as furigana or romaji; every other
 // category only ever has one reading layer. Resets to furigana each time
 // a song is opened (it's a view-time toggle, not a per-song preference).
-let performReadingMode = 'furigana'; // japanese: 'furigana'|'romaji'|'hangul'; korean: 'romaji'|'katakana'
+let performReadingMode = 'furigana'; // japanese: 'furigana'|'romaji'; other categories use a single reading
 
 // Which override-groups field on a line holds edits for the current
 // category+mode combination — each extra reading layer beyond the
@@ -171,21 +171,42 @@ function buildLyricsDom(song) {
   applySelectionHighlight();
 }
 
-const READING_MODE_BUTTONS = { furigana: 'mode-btn-furigana', romaji: 'mode-btn-romaji', hangul: 'mode-btn-hangul', katakana: 'mode-btn-katakana' };
-const READING_MODES_BY_CATEGORY = { japanese: ['furigana', 'romaji', 'hangul'], korean: ['romaji', 'katakana'] };
+const READING_MODE_BUTTONS = { furigana: 'mode-btn-furigana', romaji: 'mode-btn-romaji' };
+const READING_MODES_BY_CATEGORY = { japanese: ['furigana', 'romaji'] };
 
-// Shows only the mode buttons applicable to this song's category (chinese/
-// english get none at all — the row itself hides), and marks whichever one
-// matches the current performReadingMode as active.
+// Shows only the mode buttons applicable to this song's category. The row
+// only appears when there's an actual choice (≥2 modes) — so Japanese gets
+// the あ/A toggle, and korean/chinese/english show their single reading with
+// no toggle at all. The "Update romaji" helper rides in this row too, but
+// only for editable Japanese songs.
 function updateReadingModeButtons(cat) {
   const modes = READING_MODES_BY_CATEGORY[cat];
-  $('reading-mode-row').classList.toggle('hidden', !modes);
+  const show = !!modes && modes.length >= 2;
+  $('reading-mode-row').classList.toggle('hidden', !show);
   for (const key in READING_MODE_BUTTONS) {
     const btn = $(READING_MODE_BUTTONS[key]);
-    const applicable = !!modes && modes.includes(key);
+    const applicable = show && modes.includes(key);
     btn.classList.toggle('hidden', !applicable);
     btn.classList.toggle('active', applicable && key === performReadingMode);
   }
+  $('btn-sync-romaji').classList.toggle('hidden', !(cat === 'japanese' && !performReadOnly));
+}
+
+// One-tap: rebuild each line's romaji overrides from the furigana readings the
+// user has set, so the romaji view matches the furigana they just finished.
+// Non-overridden words already share the same source reading (tok.r), so only
+// the manual furigana fixes need mirroring across. Japanese, editable songs only.
+function syncRomajiFromFurigana() {
+  if (!currentSong || performReadOnly || songCategory(currentSong) !== 'japanese') return;
+  for (const line of currentSong.lines) {
+    if (line.gap) continue;
+    line.romajiGroups = (line.groups || []).map(g => ({
+      start: g.start, end: g.end, reading: kanaToRomaji(g.reading),
+    }));
+  }
+  saveSongs();
+  if (performReadingMode === 'romaji') buildLyricsDom(currentSong);
+  showToast('Romaji updated from your furigana ✓');
 }
 
 function openPerform(song) {

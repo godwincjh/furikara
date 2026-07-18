@@ -7,6 +7,7 @@
 /* ---------------- japanese text helpers ---------------- */
 
 const KANJI_RE = /[㐀-鿿豈-﫿々〆ヶ]/;
+const DIGIT_RE = /[0-9０-９]/;
 
 function hasKanji(s) { return KANJI_RE.test(s); }
 
@@ -26,12 +27,15 @@ function escapeRegex(s) {
  *   [ {text:歩, ruby:ある}, {text:き}, {text:出, ruby:だ}, {text:す} ]
  */
 function alignFurigana(surface, reading) {
-  if (!reading || !hasKanji(surface)) return [{ text: surface }];
+  // Digits take ruby too (in addition to kanji), so a counter reading like
+  // 3つ→みっつ can render over the "3"; kanji cases (三つ, 二人) align normally.
+  const needsRuby = ch => KANJI_RE.test(ch) || DIGIT_RE.test(ch);
+  if (!reading || ![...surface].some(needsRuby)) return [{ text: surface }];
   const hira = kataToHira(reading);
 
   const runs = [];
   for (const ch of surface) {
-    const k = KANJI_RE.test(ch);
+    const k = needsRuby(ch);
     const last = runs[runs.length - 1];
     if (last && last.kanji === k) last.text += ch;
     else runs.push({ text: ch, kanji: k });
@@ -53,6 +57,109 @@ function alignFurigana(surface, reading) {
     else parts.push({ text: run.text });
   }
   return parts;
+}
+
+/* ---------------- japanese counter words ---------------- */
+
+/*
+ * number + counter combinations have irregular readings the dictionary gets
+ * wrong (2人 is ふたり not ににん; 3つ is みっつ not さんつ). After tokenizing,
+ * detect a quantifier (arabic/fullwidth/kanji numeral, or 何/幾) immediately
+ * followed by a known counter, and override the reading with the correct one,
+ * merging the two into a single token. Only confidently-irregular counters are
+ * tabled — ambiguous ones (月/年/時/分, where a bare number+char is often not a
+ * counter at all: 十分 じゅうぶん "enough" vs じゅっぷん "10 min") are left to the
+ * dictionary. Readings are katakana to match the tokenizer's reading field, so
+ * furigana / romaji / hangul modes all pick them up. Users can still tap-edit
+ * any word if a reading is off.
+ */
+const KANJI_DIGITS = { '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+
+function parseJpNumber(s) {
+  if (/^[0-9０-９]+$/.test(s)) {
+    return parseInt(s.replace(/[０-９]/g, d => '０１２３４５６７８９'.indexOf(d)), 10);
+  }
+  if (s === '〇' || s === '零') return 0;
+  const ti = s.indexOf('十');                    // kanji numerals up to 99 (enough for counters)
+  if (ti === -1) return (s.length === 1 && s in KANJI_DIGITS) ? KANJI_DIGITS[s] : null;
+  const before = s.slice(0, ti), after = s.slice(ti + 1);
+  const tens = before === '' ? 1 : (before in KANJI_DIGITS ? KANJI_DIGITS[before] : null);
+  const ones = after === '' ? 0 : (after in KANJI_DIGITS ? KANJI_DIGITS[after] : null);
+  return (tens === null || ones === null) ? null : tens * 10 + ones;
+}
+
+const COUNTER_READINGS = {
+  'つ': { 1: 'ヒトツ', 2: 'フタツ', 3: 'ミッツ', 4: 'ヨッツ', 5: 'イツツ', 6: 'ムッツ', 7: 'ナナツ', 8: 'ヤッツ', 9: 'ココノツ', '幾': 'イクツ' },
+  '人': { 1: 'ヒトリ', 2: 'フタリ', 3: 'サンニン', 4: 'ヨニン', 5: 'ゴニン', 6: 'ロクニン', 7: 'シチニン', 8: 'ハチニン', 9: 'キュウニン', 10: 'ジュウニン', '何': 'ナンニン' },
+  '個': { 1: 'イッコ', 2: 'ニコ', 3: 'サンコ', 4: 'ヨンコ', 5: 'ゴコ', 6: 'ロッコ', 7: 'ナナコ', 8: 'ハッコ', 9: 'キュウコ', 10: 'ジュッコ', '何': 'ナンコ' },
+  '本': { 1: 'イッポン', 2: 'ニホン', 3: 'サンボン', 4: 'ヨンホン', 5: 'ゴホン', 6: 'ロッポン', 7: 'ナナホン', 8: 'ハッポン', 9: 'キュウホン', 10: 'ジュッポン', '何': 'ナンボン' },
+  '匹': { 1: 'イッピキ', 2: 'ニヒキ', 3: 'サンビキ', 4: 'ヨンヒキ', 5: 'ゴヒキ', 6: 'ロッピキ', 7: 'ナナヒキ', 8: 'ハッピキ', 9: 'キュウヒキ', 10: 'ジュッピキ', '何': 'ナンビキ' },
+  '枚': { 1: 'イチマイ', 2: 'ニマイ', 3: 'サンマイ', 4: 'ヨンマイ', 5: 'ゴマイ', 6: 'ロクマイ', 7: 'ナナマイ', 8: 'ハチマイ', 9: 'キュウマイ', 10: 'ジュウマイ', '何': 'ナンマイ' },
+  '冊': { 1: 'イッサツ', 2: 'ニサツ', 3: 'サンサツ', 4: 'ヨンサツ', 5: 'ゴサツ', 6: 'ロクサツ', 7: 'ナナサツ', 8: 'ハッサツ', 9: 'キュウサツ', 10: 'ジュッサツ', '何': 'ナンサツ' },
+  '杯': { 1: 'イッパイ', 2: 'ニハイ', 3: 'サンバイ', 4: 'ヨンハイ', 5: 'ゴハイ', 6: 'ロッパイ', 7: 'ナナハイ', 8: 'ハッパイ', 9: 'キュウハイ', 10: 'ジュッパイ', '何': 'ナンバイ' },
+  '回': { 1: 'イッカイ', 2: 'ニカイ', 3: 'サンカイ', 4: 'ヨンカイ', 5: 'ゴカイ', 6: 'ロッカイ', 7: 'ナナカイ', 8: 'ハッカイ', 9: 'キュウカイ', 10: 'ジュッカイ', '何': 'ナンカイ' },
+  '歳': { 1: 'イッサイ', 2: 'ニサイ', 3: 'サンサイ', 4: 'ヨンサイ', 5: 'ゴサイ', 6: 'ロクサイ', 7: 'ナナサイ', 8: 'ハッサイ', 9: 'キュウサイ', 10: 'ジュッサイ', 20: 'ハタチ', '何': 'ナンサイ' },
+  '才': { 1: 'イッサイ', 2: 'ニサイ', 3: 'サンサイ', 4: 'ヨンサイ', 5: 'ゴサイ', 6: 'ロクサイ', 7: 'ナナサイ', 8: 'ハッサイ', 9: 'キュウサイ', 10: 'ジュッサイ', 20: 'ハタチ', '何': 'ナンサイ' },
+  '日': { 2: 'フツカ', 3: 'ミッカ', 4: 'ヨッカ', 5: 'イツカ', 6: 'ムイカ', 7: 'ナノカ', 8: 'ヨウカ', 9: 'ココノカ', 10: 'トオカ', 14: 'ジュウヨッカ', 20: 'ハツカ', 24: 'ニジュウヨッカ' }, // 1日 omitted: ついたち vs いちにち is context-dependent
+};
+
+const COUNTER_CHARS = new Set(Object.keys(COUNTER_READINGS));
+const QUANTIFIER_RE = /^[0-9０-９〇零一二三四五六七八九十百千]+$/;
+
+function isQuantifier(s) { return QUANTIFIER_RE.test(s) || s === '何' || s === '幾'; }
+
+function counterReadingFor(numSurface, counter) {
+  const table = COUNTER_READINGS[counter];
+  if (!table) return null;
+  const key = (numSurface === '何' || numSurface === '幾') ? numSurface : parseJpNumber(numSurface);
+  return (key === null) ? null : (table[key] || null);
+}
+
+// A surface that is a quantifier directly followed by a known counter char
+// (dictionary sometimes emits the pair as one token: 二人 / 三つ / 2人).
+function splitCounter(s) {
+  for (const c of COUNTER_CHARS) {
+    if (s.length > c.length && s.endsWith(c)) {
+      const num = s.slice(0, -c.length);
+      if (isQuantifier(num)) return { num, counter: c };
+    }
+  }
+  return null;
+}
+
+// Post-process a Japanese token list, fixing counter readings in place. The
+// number can be split across several tokens (kuromoji cuts 二十歳 into 二/十/歳),
+// so we gather a maximal run of consecutive numeral tokens, then look at what
+// follows: a bare counter (歳), or a token that is itself number+counter (十歳).
+function applyCounterReadings(toks) {
+  const out = [];
+  let i = 0;
+  while (i < toks.length) {
+    let j = i;
+    while (j < toks.length && isQuantifier(toks[j].s)) j++;   // toks[i..j) are numerals
+    if (j > i && j < toks.length) {
+      const num = toks.slice(i, j).map(t => t.s).join('');
+      const nextS = toks[j].s;
+      let counter = null, fullNum = num;
+      if (COUNTER_CHARS.has(nextS)) counter = nextS;           // …number + 歳
+      else {
+        const sc = splitCounter(nextS);                        // …number + 十歳 (leftover digit stuck to the counter)
+        if (sc && QUANTIFIER_RE.test(sc.num)) { counter = sc.counter; fullNum = num + sc.num; }
+      }
+      if (counter) {
+        const r = counterReadingFor(fullNum, counter);
+        if (r) { out.push({ s: toks.slice(i, j + 1).map(t => t.s).join(''), r }); i = j + 1; continue; }
+      }
+    }
+    const single = splitCounter(toks[i].s);                    // one token already number+counter: 二人 / 三つ / 8個
+    if (single) {
+      const r = counterReadingFor(single.num, single.counter);
+      if (r) { out.push({ s: toks[i].s, r }); i++; continue; }
+    }
+    out.push(toks[i]);
+    i++;
+  }
+  return out;
 }
 
 /* ---------------- japanese romaji ---------------- */

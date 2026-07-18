@@ -29,10 +29,10 @@ function rawLines(text) {
 
 function buildLineFresh(text) {
   if (!text.trim()) return { gap: true };
-  const toks = tokenizer.tokenize(text).map(t => ({
+  const toks = applyCounterReadings(tokenizer.tokenize(text).map(t => ({
     s: t.surface_form,
     r: (t.reading && t.reading !== '*') ? t.reading : null,
-  }));
+  })));
   return { toks, groups: [], romajiGroups: [], hangulGroups: [] };
 }
 

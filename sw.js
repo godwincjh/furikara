@@ -1,7 +1,7 @@
 /* Versecue service worker — cache everything, serve from cache first,
    so the app works with zero network in the karaoke room. */
 
-const CACHE = 'versecue-v3';
+const CACHE = 'versecue-v4';
 
 const ASSETS = [
   './',
