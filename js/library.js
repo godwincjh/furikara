@@ -58,7 +58,7 @@ function renderLibraryPage() {
     bPublish.textContent = '🌐';
     bPublish.disabled = cantPublish;
     bPublish.title = alreadyPublished ? 'Already published'
-      : song.imported ? 'Songs added from Public List/Other Lists can\'t be republished'
+      : song.imported ? 'Songs added from Public List/Shared Lists can\'t be republished'
       : 'Publish to Public List';
     bPublish.onclick = e => { e.stopPropagation(); if (!cantPublish) confirmPublish(song); };
 

@@ -12,7 +12,7 @@ const LS_MY_SHARES = 'versecue.myShares';       // codes I generated, to keep pu
 const LS_OTHER_LISTS = 'versecue.otherLists';   // lists others shared with me
 const API_ORIGIN = 'https://versecue-share.pages.dev';
 
-const APP_SHARE_URL = 'https://godwincjh.github.io/versecue/';
+const APP_SHARE_URL = 'https://versecue.net/';
 const APP_SHARE_TEXT = '🎤 Sing karaoke in any language with Versecue — it prints the reading (furigana, romaji, Hangul, pinyin) above every lyric so you can sing along, even offline. Try it free:';
 
 function loadSongs() {
